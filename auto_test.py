@@ -40,7 +40,19 @@ def run(cmd, cwd=None):
 # Commit to analyze (can be passed as argument: python auto_test.py <hash>)
 TARGET_COMMIT = sys.argv[1] if len(sys.argv) > 1 else "HEAD"
 
-# ─── PASO 1: Info del último commit ──────────────────────────────────────────
+# Cache for git diff output — computed once, reused in steps 2 & 3
+_DIFF_CACHE: str | None = None
+
+def get_diff() -> str:
+    """Returns the git diff for TARGET_COMMIT, cached after first call."""
+    global _DIFF_CACHE
+    if _DIFF_CACHE is None:
+        _DIFF_CACHE, _ = run(f"git diff {TARGET_COMMIT}~1 {TARGET_COMMIT}")
+        if not _DIFF_CACHE:
+            _DIFF_CACHE, _ = run("git diff")
+    return _DIFF_CACHE
+
+# ─── STEP 1: Last commit info ───────────────────────────────────────────────
 def get_last_commit_info():
     banner(f"📦 STEP 1 · Analyzing commit: {TARGET_COMMIT}")
     
@@ -56,7 +68,7 @@ def get_last_commit_info():
     
     return commit_hash
 
-# ─── PASO 2: Archivos modificados ────────────────────────────────────────────
+# ─── STEP 2: Modified files ─────────────────────────────────────────────────
 def get_changed_files():
     banner("📁 STEP 2 · Files modified in the commit")
     
@@ -83,14 +95,11 @@ def get_changed_files():
     
     return changed
 
-# ─── PASO 3: Analizar el diff en detalle ─────────────────────────────────────
+# ─── STEP 3: Analyze diff in detail ─────────────────────────────────────────
 def analyze_diff():
     banner("🔍 STEP 3 · Analyzing text/content changes")
     
-    diff_output, _ = run(f"git diff {TARGET_COMMIT}~1 {TARGET_COMMIT}")
-    
-    if not diff_output:
-        diff_output, _ = run("git diff")
+    diff_output = get_diff()
     
     if not diff_output:
         print(f"  {YELLOW}No diff available.{RESET}")
@@ -109,13 +118,13 @@ def analyze_diff():
             new_text = line[1:].strip()
             changes.append({"file": current_file, "type": "added", "text": new_text})
     
-    # Emparejar líneas removidas/agregadas para mostrar como cambios
+    # Pair removed/added lines to identify text changes
     removed = [c for c in changes if c["type"] == "removed" and c["text"]]
     added   = [c for c in changes if c["type"] == "added"   and c["text"]]
     
     text_changes = []
     for r, a in zip(removed, added):
-        # Ignorar cambios donde la nueva línea es un comentario HTML
+        # Skip lines that became HTML comments
         if a["text"].strip().startswith("<!--"):
             continue
         if r["file"] == a["file"] and r["text"] != a["text"]:
@@ -129,7 +138,7 @@ def analyze_diff():
             })
     
     if not text_changes:
-        print(f"  {YELLOW}No se detectaron cambios de texto simples.{RESET}")
+        print(f"  {YELLOW}No simple text changes detected.{RESET}")
     
     return text_changes
 
@@ -149,7 +158,7 @@ def extract_tag(html_line):
     match = re.search(r'<(\w+)', html_line)
     return match.group(1) if match else "element"
 
-# ─── PASO 4: Generar tests de Playwright ─────────────────────────────────────
+# ─── STEP 4: Generate Playwright tests ──────────────────────────────────────
 def generate_tests(text_changes):
     banner("⚙️  STEP 4 · Generating Playwright tests")
     
@@ -194,7 +203,7 @@ def generate_tests(text_changes):
     await expect(el).not.toHaveText('{old_text_val}');
   }});""")
         
-        print(f"  ✅ Test generado para: {selector} → \"{new_text_val}\"")
+        print(f"  ✅ Test generated for: {selector} → \"{new_text_val}\"")
     
     if not test_cases:
         print(f"  {YELLOW}Could not generate tests (no element IDs found in HTML).{RESET}")
@@ -219,10 +228,10 @@ test.describe('🤖 Auto-generated – Git change detection', () => {{
     with open(test_file, "w", encoding="utf-8") as f:
         f.write(content)
     
-    print(f"\n  {GREEN}📄 Archivo generado: {test_file}{RESET}")
+    print(f"\n  {GREEN}📄 File generated: {test_file}{RESET}")
     return test_file
 
-# ─── PASO 5: Ejecutar los tests ───────────────────────────────────────────────
+# ─── STEP 5: Run the tests ───────────────────────────────────────────────────
 def run_tests(test_file):
     banner("🚀 STEP 5 · Running Playwright tests")
 
@@ -253,7 +262,7 @@ def run_tests(test_file):
 
     return results
 
-# ─── PASO 6: Resumen de resultados ────────────────────────────────────────────
+# ─── STEP 6: Results summary ────────────────────────────────────────────────
 def parse_playwright_json(stdout):
     """Extracts stats from the Playwright JSON report."""
     try:
@@ -309,7 +318,7 @@ def print_summary(run_results, text_changes):
                                 for res in t.get("results", []):
                                     for err in res.get("errors", []):
                                         print(f"         {RED}{err.get('message','')[:150]}{RESET}")
-            print(f"    ⏱  Tiempo : {stats['duration']:.1f}s")
+            print(f"    ⏱  Time   : {stats['duration']:.1f}s")
         else:
             # plain text fallback
             if rc == 0:
