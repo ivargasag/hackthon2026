@@ -62,17 +62,18 @@ class PlaywrightTestGenerator:
     """Generate Playwright test from natural language description."""
 
     prompt = f"""
-Generate a Playwright test in Python based on this description: {description}
+Generate a Playwright JavaScript test based on this description: {description}
 
 Requirements:
-- Use pytest and playwright.sync_api
-- Include proper imports
+- Use @playwright/test in JavaScript (CommonJS)
+- Include imports: const {{ test, expect }} = require('@playwright/test');
+- Include a BASE_URL constant set to the target URL
 - Add meaningful assertions
-- Use page object locators
+- Use stable Playwright locators (getByRole/getByLabel/getByText) when possible
 - Include error handling where appropriate
 - URL: {url if url else 'determine from context'}
 
-Return only the Python code, properly formatted.
+Return only JavaScript code, properly formatted.
 """
 
     try:
@@ -81,7 +82,7 @@ Return only the Python code, properly formatted.
         messages=[
           {
             "role": "system",
-            "content": "You are an expert Playwright test automation engineer. Generate clean, maintainable test code."
+            "content": "You are an expert Playwright JavaScript test automation engineer. Generate clean, maintainable JS test code."
           },
           {"role": "user", "content": prompt}
         ],
@@ -101,18 +102,18 @@ Return only the Python code, properly formatted.
     """Generate test from user story format."""
 
     prompt = f"""
-Convert this user story into a Playwright test:
+Convert this user story into a Playwright JavaScript test:
 
 {user_story}
 
-Generate a complete Python test function with:
+Generate a complete JavaScript test file with:
 1. Proper setup and navigation
 2. All user interactions
 3. Assertions for expected outcomes
 4. Error handling
 5. Clear comments
 
-Format as a complete test file with imports.
+Format as a complete JS Playwright file with imports.
 """
 
     try:
@@ -121,7 +122,7 @@ Format as a complete test file with imports.
         messages=[
           {
             "role": "system",
-            "content": "You are a test automation expert. Create comprehensive Playwright tests from user stories."
+            "content": "You are a JavaScript test automation expert. Create comprehensive Playwright JS tests from user stories."
           },
           {"role": "user", "content": prompt}
         ],
@@ -183,39 +184,48 @@ Requirements:
     url_match = re.search(r"https?://[^\s)\]\}]+", text)
     return url_match.group(0) if url_match else None
 
+  def _escape_js_single_quote(self, value):
+    return value.replace('\\', '\\\\').replace("'", "\\'")
+
   def _build_local_description_test(self, description, url=None):
     target_url = url or self._extract_url_from_text(description) or "https://example.com"
-    return f'''import re
-import pytest
-from playwright.sync_api import expect
+    escaped_url = self._escape_js_single_quote(target_url)
+    return f'''const {{ test, expect }} = require('@playwright/test');
 
+const BASE_URL = '{escaped_url}';
 
-def test_generated_from_description(page):
-  """Auto-generated fallback test from natural language description."""
-  page.goto("{target_url}")
+test.describe('Auto-generated from description', () => {{
+  test('runs described flow', async ({{ page }}) => {{
+    await page.goto(BASE_URL);
 
-  # TODO: Replace placeholder selectors with app-specific stable locators.
-  page.get_by_label("Username").fill("valid_user")
-  page.get_by_label("Password").fill("valid_password")
-  page.get_by_role("button", name="Sign in").click()
+    // TODO: Replace placeholder selectors with app-specific stable locators.
+    await page.getByLabel('Username').fill('valid_user');
+    await page.getByLabel('Password').fill('valid_password');
+    await page.getByRole('button', {{ name: 'Sign in' }}).click();
 
-  # Generic post-login assertion; adjust to your product language if needed.
-  expect(page.get_by_role("heading", name=re.compile("dashboard", re.IGNORECASE))).to_be_visible()
+    // Generic post-login assertion; adjust to your product language if needed.
+    await expect(page.getByRole('heading', {{ name: /dashboard/i }})).toBeVisible();
+  }});
+}});
 '''
 
   def _build_local_story_test(self, user_story):
-    escaped_story = user_story.replace('"""', '\\"\\"\\"')
-    return f'''import pytest
+    escaped_story = self._escape_js_single_quote(user_story)
+    return f'''const {{ test, expect }} = require('@playwright/test');
 
+const BASE_URL = 'http://localhost:3000';
 
-def test_generated_from_user_story(page):
-  """Auto-generated fallback test from user story input."""
-  story = """{escaped_story}"""
-  assert story.strip(), "User story text must not be empty"
+test.describe('Auto-generated from user story', () => {{
+  test('story scaffold', async ({{ page }}) => {{
+    const story = '{escaped_story}';
+    expect(story.trim().length).toBeGreaterThan(0);
 
-  # TODO: Implement concrete steps based on this user story.
-  # Kept intentionally minimal so it is safe to run and easy to extend.
-  assert True
+    await page.goto(BASE_URL);
+
+    // TODO: Implement concrete user interactions and assertions from the story.
+    await expect(page.locator('body')).toBeVisible();
+  }});
+}});
 '''
 
   def _extract_visible_text(self, line_text):
@@ -236,8 +246,8 @@ def test_generated_from_user_story(page):
     old_expectation = self._extract_visible_text(old_line)
     new_expectation = self._extract_visible_text(new_line)
 
-    escaped_new = new_expectation.replace('\\', '\\\\').replace("'", "\\'")
-    escaped_old = old_expectation.replace('\\', '\\\\').replace("'", "\\'")
+    escaped_new = self._escape_js_single_quote(new_expectation)
+    escaped_old = self._escape_js_single_quote(old_expectation)
 
     return f'''const {{ test, expect }} = require('@playwright/test');
 
@@ -248,8 +258,8 @@ test.describe('Auto-generated from code change', () => {{
     await page.goto(BASE_URL);
 
     // Validate that the new text appears and the old text no longer appears.
-    await expect(page.get_by_text('{escaped_new}')).toBeVisible();
-    await expect(page.get_by_text('{escaped_old}')).not.toBeVisible();
+    await expect(page.getByText('{escaped_new}')).toBeVisible();
+    await expect(page.getByText('{escaped_old}')).not.toBeVisible();
   }});
 }});
 '''
@@ -258,7 +268,7 @@ test.describe('Auto-generated from code change', () => {{
 def main():
   load_simple_dotenv()
 
-  parser = argparse.ArgumentParser(description="Generate Playwright tests using OpenAI.")
+  parser = argparse.ArgumentParser(description="Generate Playwright JavaScript tests using OpenAI.")
   parser.add_argument("--provider", choices=["azure", "openai"], default=os.getenv("OPENAI_PROVIDER", "azure"))
   parser.add_argument("--api-key", default=os.getenv("AZURE_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY"), help="API key")
   parser.add_argument("--mode", choices=["description", "story", "change"], default="description")
