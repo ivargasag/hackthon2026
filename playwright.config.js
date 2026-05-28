@@ -8,13 +8,17 @@ module.exports = defineConfig({
   reporter: 'html',
   use: {
     baseURL: 'http://localhost:3000',
-    headless: true,
+    headless: false,   // ← cambiar a true para CI/demo silencioso
     screenshot: 'only-on-failure',
   },
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        // Use system Chrome to avoid download issues behind corporate proxy
+        channel: 'chrome',
+      },
     },
   ],
   // Automatically start the Express server before tests
