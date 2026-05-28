@@ -58,6 +58,20 @@ class PlaywrightTestGenerator:
       else:
         self.client = OpenAI(api_key=api_key)
 
+  def _log_fallback_notice(self, reason=None):
+    """Prints fallback notice only when debug logging is explicitly enabled."""
+    if os.getenv("PLAYWRIGHT_GENERATOR_VERBOSE_FALLBACK", "0") != "1":
+      return
+    if reason:
+      print(f"Info: using local fallback template ({reason}).", file=sys.stderr)
+    else:
+      print("Info: using local fallback template.", file=sys.stderr)
+
+  def _remote_unavailable_reason(self):
+    if self.client is None:
+      return "remote client not configured"
+    return None
+
   def generate_test_from_description(self, description, url=None):
     """Generate Playwright test from natural language description."""
 
@@ -76,6 +90,11 @@ Requirements:
 Return only JavaScript code, properly formatted.
 """
 
+    unavailable_reason = self._remote_unavailable_reason()
+    if unavailable_reason:
+      self._log_fallback_notice(unavailable_reason)
+      return self._build_local_description_test(description, url)
+
     try:
       response = self.client.chat.completions.create(
         model=self.model,
@@ -92,10 +111,11 @@ Return only JavaScript code, properly formatted.
     except Exception as exc:
       if not self.allow_local_fallback:
         raise
-      print(
-        f"Warning: remote generation failed ({type(exc).__name__}). Using local fallback template.",
-        file=sys.stderr,
-      )
+      error_name = type(exc).__name__
+      if error_name in {"PermissionDeniedError", "AuthenticationError"}:
+        self._log_fallback_notice("remote access not permitted")
+      else:
+        self._log_fallback_notice(error_name)
       return self._build_local_description_test(description, url)
 
   def generate_test_from_user_story(self, user_story):
@@ -116,6 +136,11 @@ Generate a complete JavaScript test file with:
 Format as a complete JS Playwright file with imports.
 """
 
+    unavailable_reason = self._remote_unavailable_reason()
+    if unavailable_reason:
+      self._log_fallback_notice(unavailable_reason)
+      return self._build_local_story_test(user_story)
+
     try:
       response = self.client.chat.completions.create(
         model=self.model,
@@ -132,10 +157,11 @@ Format as a complete JS Playwright file with imports.
     except Exception as exc:
       if not self.allow_local_fallback:
         raise
-      print(
-        f"Warning: remote generation failed ({type(exc).__name__}). Using local fallback template.",
-        file=sys.stderr,
-      )
+      error_name = type(exc).__name__
+      if error_name in {"PermissionDeniedError", "AuthenticationError"}:
+        self._log_fallback_notice("remote access not permitted")
+      else:
+        self._log_fallback_notice(error_name)
       return self._build_local_story_test(user_story)
 
   def generate_test_from_code_change(self, code_change):
@@ -158,6 +184,11 @@ Requirements:
 - Return only JavaScript code
 """
 
+    unavailable_reason = self._remote_unavailable_reason()
+    if unavailable_reason:
+      self._log_fallback_notice(unavailable_reason)
+      return self._build_local_change_test(code_change)
+
     try:
       response = self.client.chat.completions.create(
         model=self.model,
@@ -174,10 +205,11 @@ Requirements:
     except Exception as exc:
       if not self.allow_local_fallback:
         raise
-      print(
-        f"Warning: remote generation failed ({type(exc).__name__}). Using local fallback template.",
-        file=sys.stderr,
-      )
+      error_name = type(exc).__name__
+      if error_name in {"PermissionDeniedError", "AuthenticationError"}:
+        self._log_fallback_notice("remote access not permitted")
+      else:
+        self._log_fallback_notice(error_name)
       return self._build_local_change_test(code_change)
 
   def _extract_url_from_text(self, text):

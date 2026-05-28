@@ -17,6 +17,7 @@ import re
 import os
 import json
 import sys
+import time
 from datetime import datetime
 
 # ─── Terminal colors ─────────────────────────────────────────────────────────
@@ -222,6 +223,31 @@ def _build_template_test_cases(text_changes):
 
     return test_cases
 
+def show_openai_generation_delay(seconds=10):
+    """Shows a short visual countdown before requesting OpenAI generation."""
+    print(f"  {CYAN}🤖 Generating test with OpenAI...{RESET}")
+    for remaining in range(seconds, 0, -1):
+        print(
+            f"\r  {CYAN}⏳ OpenAI generation in progress: {remaining:02d}s remaining...{RESET}",
+            end="",
+            flush=True,
+        )
+        time.sleep(1)
+    print(f"\r  {GREEN}✅ OpenAI generation request starting now.{RESET}        ")
+
+def print_ai_usage_notice():
+    """Explains AI contribution and required expert human validation."""
+    print(f"\n  {CYAN}{BOLD}🧠 AI Usage Notice{RESET}")
+    print(
+        f"  {CYAN}The test draft was generated with AI from detected git changes to accelerate coverage.{RESET}"
+    )
+    print(
+        f"  {YELLOW}Treat this output as a refinable resource, not a finished product.{RESET}"
+    )
+    print(
+        f"  {YELLOW}A human QA/automation expert must validate selectors, assertions, and business intent before production use.{RESET}"
+    )
+
 # ─── STEP 4: Generate Playwright tests ──────────────────────────────────────
 def generate_tests(text_changes):
     banner("⚙️  STEP 4 · Generating Playwright tests")
@@ -240,6 +266,9 @@ def generate_tests(text_changes):
             f"{change['file']}\n- {change['old_text']}\n+ {change['new_text']}"
         )
     diff_snippet = "\n\n".join(diff_snippet_parts)
+
+    # Demo-friendly pause so users can see AI generation stage clearly.
+    show_openai_generation_delay(10)
 
     ai_generated_code = None
     try:
@@ -301,6 +330,7 @@ test.describe('🤖 Auto-generated – Git change detection', () => {{
         f.write(content)
     
     print(f"\n  {GREEN}📄 File generated: {test_file}{RESET}")
+    print_ai_usage_notice()
     return test_file
 
 # ─── STEP 5: Run the tests ───────────────────────────────────────────────────
