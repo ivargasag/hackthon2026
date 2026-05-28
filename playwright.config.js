@@ -8,7 +8,7 @@ module.exports = defineConfig({
   reporter: 'html',
   use: {
     baseURL: 'http://localhost:3000',
-    headless: false,   // ← cambiar a true para CI/demo silencioso
+    headless: true,   // ← cambiar a true para CI/demo silencioso
     screenshot: 'only-on-failure',
   },
   projects: [

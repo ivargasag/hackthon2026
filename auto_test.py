@@ -345,7 +345,7 @@ def print_summary(run_results, text_changes):
             new_v = extract_inner_text(c["new_text"]) or c["new_text"][:50]
             print(f"    {RED}«{old_v}»{RESET}  →  {GREEN}«{new_v}»{RESET}")
 
-    overall = f"{GREEN}{BOLD}✅ DEMO SUCCESSFUL" if all_ok else f"{RED}{BOLD}❌ TESTS FAILED"
+    overall = f"{GREEN}{BOLD}✅ SUCCESSFUL" if all_ok else f"{RED}{BOLD}❌ TESTS FAILED"
     print(f"\n  {overall}{RESET}")
 
 # ─── MAIN ─────────────────────────────────────────────────────────────────────

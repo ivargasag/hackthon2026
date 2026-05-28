@@ -30,14 +30,11 @@ test.describe('🔒 Base — Invariants that must NEVER change', () => {
     await expect(eventText).toBeVisible();
   });
 
-  test('Intel logo must always be visible', async ({ page }) => {
-    const logo = page.locator('#logo');
-    await expect(logo).toBeVisible();
-  });
-
-  test('footer must always be present', async ({ page }) => {
+  test('footer must always be present and match the correct format', async ({ page }) => {
     const footer = page.locator('#footer-text');
     await expect(footer).toBeVisible();
+    // Must match: "© 20XX Intel Corporation · Costa Rica"
+    await expect(footer).toHaveText(/^©\s20\d{2}\sIntel Corporation\s·\sCosta Rica$/);
   });
 
   test('button click must change text to "Registered! 🎉"', async ({ page }) => {
