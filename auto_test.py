@@ -60,12 +60,13 @@ def get_last_commit_info():
     commit_hash, _ = run(f"git log -1 --format=%H {TARGET_COMMIT}")
     commit_msg,  _ = run(f"git log -1 --format=%s {TARGET_COMMIT}")
     commit_author, _ = run(f"git log -1 --format=%an {TARGET_COMMIT}")
-    commit_date, _  = run(f"git log -1 --format=%cd --date=format:'%Y-%m-%d %H:%M:%S' {TARGET_COMMIT}")
+    commit_date, _  = run(f"git log -1 --format=%ci {TARGET_COMMIT}")
     
     print(f"  {BOLD}Hash   :{RESET} {commit_hash[:12]}")
     print(f"  {BOLD}Message:{RESET} {commit_msg}")
     print(f"  {BOLD}Author :{RESET} {commit_author}")
-    print(f"  {BOLD}Date   :{RESET} {commit_date}")
+    if commit_date:
+        print(f"  {BOLD}Date   :{RESET} {commit_date}")
     
     return commit_hash
 
@@ -129,9 +130,10 @@ def analyze_diff():
         if a["text"].strip().startswith("<!--"):
             continue
         if r["file"] == a["file"] and r["text"] != a["text"]:
+            old_hl, new_hl = _highlight_diff(r["text"], a["text"])
             print(f"  📄 {BOLD}{r['file']}{RESET}")
-            print(f"     {RED}- {r['text']}{RESET}")
-            print(f"     {GREEN}+ {a['text']}{RESET}")
+            print(f"     {RED}- {old_hl}{RESET}")
+            print(f"     {GREEN}+ {new_hl}{RESET}")
             text_changes.append({
                 "file":     r["file"],
                 "old_text": r["text"],
@@ -223,29 +225,46 @@ def _build_template_test_cases(text_changes):
 
     return test_cases
 
-def show_openai_generation_delay(seconds=10):
-    """Shows a short visual countdown before requesting OpenAI generation."""
-    print(f"  {CYAN}🤖 Generating test with OpenAI...{RESET}")
-    for remaining in range(seconds, 0, -1):
-        print(
-            f"\r  {CYAN}⏳ OpenAI generation in progress: {remaining:02d}s remaining...{RESET}",
-            end="",
-            flush=True,
-        )
-        time.sleep(1)
-    print(f"\r  {GREEN}✅ OpenAI generation request starting now.{RESET}        ")
+def _highlight_diff(old_text, new_text):
+    """Returns (old_highlighted, new_highlighted) with BOLD on the changed portion."""
+    prefix = 0
+    for i in range(min(len(old_text), len(new_text))):
+        if old_text[i] == new_text[i]:
+            prefix += 1
+        else:
+            break
+    suffix = 0
+    max_s = min(len(old_text), len(new_text)) - prefix
+    for i in range(1, max_s + 1):
+        if old_text[-i] == new_text[-i]:
+            suffix += 1
+        else:
+            break
+
+    def _wrap(text):
+        end = len(text) - suffix if suffix else len(text)
+        return text[:prefix] + BOLD + text[prefix:end] + RESET + (text[end:] if suffix else "")
+
+    return _wrap(old_text), _wrap(new_text)
+
+
+def show_ai_contacting_message(provider, model, dot_rounds=3):
+    """Shows a 'Calling Provider - Model' message with animated dots."""
+    provider_label = provider.upper() if provider else "AI"
+    print(f"\n  {CYAN}Calling {provider_label} - {model}{RESET}")
+    print(f"  {CYAN}Please wait a couple of seconds...{RESET}")
+    for _ in range(dot_rounds):
+        time.sleep(2)
+        print(f"  {CYAN}...{RESET}")
 
 def print_ai_usage_notice():
-    """Explains AI contribution and required expert human validation."""
+    """Reminds the user that AI output needs human review."""
     print(f"\n  {CYAN}{BOLD}🧠 AI Usage Notice{RESET}")
     print(
         f"  {CYAN}The test draft was generated with AI from detected git changes to accelerate coverage.{RESET}"
     )
     print(
-        f"  {YELLOW}Treat this output as a refinable resource, not a finished product.{RESET}"
-    )
-    print(
-        f"  {YELLOW}A human QA/automation expert must validate selectors, assertions, and business intent before production use.{RESET}"
+        f"  {YELLOW}⚠️  Please notice that AI can make mistakes, use this as a reference only.{RESET}"
     )
 
 # ─── STEP 4: Generate Playwright tests ──────────────────────────────────────
@@ -267,8 +286,17 @@ def generate_tests(text_changes):
         )
     diff_snippet = "\n\n".join(diff_snippet_parts)
 
-    # Demo-friendly pause so users can see AI generation stage clearly.
-    show_openai_generation_delay(10)
+    # Read provider/model (env already loaded in __main__; load again as safety net).
+    try:
+        from ai.playwright_test_generator import load_simple_dotenv as _load_env
+        _load_env()
+    except Exception:
+        pass
+    provider = os.getenv("OPENAI_PROVIDER", "azure")
+    model    = os.getenv("OPENAI_MODEL", "gpt-5.1")
+
+    # Show contacting message with dots.
+    show_ai_contacting_message(provider, model)
 
     ai_generated_code = None
     try:
@@ -339,10 +367,11 @@ def run_tests(test_file):
 
     results = {}
 
-    # — 5A: Base tests (always run) ─────────────────────────────────────────────
-    print(f"  {BOLD}[1/2] Base regression tests{RESET} (tests/base.spec.js)")
+    # — 5A: Regression tests (always run) ─────────────────────────────────────────
+    print(f"  {BOLD}[1/2] Regression tests{RESET} (tests/base.spec.js)")
+    print(f"  {CYAN}⏳ Running tests...{RESET}", flush=True)
     r_base = subprocess.run(
-        "npx playwright test tests/base.spec.js --reporter=json",
+        "npx playwright test tests/base.spec.js --reporter=json,html",
         shell=True, capture_output=True, text=True, encoding='utf-8', errors='replace'
     )
     results["base"] = (r_base.stdout, r_base.returncode)
@@ -352,8 +381,9 @@ def run_tests(test_file):
     # — 5B: Auto-generated tests from the diff (if any) ─────────────────────────
     if test_file:
         print(f"  {BOLD}[2/2] Auto-generated tests from commit{RESET} ({test_file})")
+        print(f"  {CYAN}⏳ Running tests...{RESET}", flush=True)
         r_gen = subprocess.run(
-            f"npx playwright test {test_file} --reporter=json",
+            f"npx playwright test {test_file} --reporter=json,html",
             shell=True, capture_output=True, text=True, encoding='utf-8', errors='replace'
         )
         results["generated"] = (r_gen.stdout, r_gen.returncode)
@@ -361,6 +391,9 @@ def run_tests(test_file):
         print(f"  → {status}")
     else:
         print(f"  {YELLOW}[2/2] No text changes detected — no generated tests.{RESET}")
+
+    # Remind user where the HTML report is.
+    print(f"\n  {CYAN}📋 HTML report: playwright-report/index.html{RESET}")
 
     return results
 
@@ -391,8 +424,8 @@ def print_summary(run_results, text_changes):
     all_ok = True
 
     sections = [
-        ("🔒 BASE tests (invariants)",         run_results.get("base")),
-        ("🤖 GENERATED tests (Git change)",    run_results.get("generated")),
+        ("🔒 Regression tests",              run_results.get("base")),
+        ("🤖 GENERATED tests (Git change)",  run_results.get("generated")),
     ]
 
     for label, result in sections:
@@ -407,20 +440,34 @@ def print_summary(run_results, text_changes):
             grand_passed   += stats["passed"]
             grand_failed   += stats["failed"]
             grand_duration += stats["duration"]
-            print(f"    Total   : {stats['total']}")
-            print(f"    {GREEN}✅ Passed : {stats['passed']}{RESET}")
-            if stats["failed"]:
-                all_ok = False
-                print(f"    {RED}❌ Failed : {stats['failed']}{RESET}")
-                for suite in stats["report"].get("suites", []):
+
+            # Collect all specs recursively (Playwright nests suites inside suites)
+            def _collect_specs(suites):
+                for suite in suites:
+                    yield from _collect_specs(suite.get("suites", []))
                     for spec in suite.get("specs", []):
-                        for t in spec.get("tests", []):
-                            if t.get("status") == "unexpected":
-                                print(f"      ❌ {spec.get('title','')}")
-                                for res in t.get("results", []):
-                                    for err in res.get("errors", []):
-                                        print(f"         {RED}{err.get('message','')[:150]}{RESET}")
-            print(f"    ⏱  Time   : {stats['duration']:.1f}s")
+                        yield spec
+
+            test_num = 0
+            for spec in _collect_specs(stats["report"].get("suites", [])):
+                for t in spec.get("tests", []):
+                    test_num += 1
+                    is_pass = t.get("status") == "expected"
+                    icon    = "✅" if is_pass else "❌"
+                    color   = GREEN if is_pass else RED
+                    if not is_pass:
+                        all_ok = False
+                    print(f"    {color}{icon} [{test_num}] {spec.get('title', '')}{RESET}")
+                    if not is_pass:
+                        for res in t.get("results", []):
+                            for err in res.get("errors", []):
+                                print(f"       {RED}↳ {err.get('message','')[:150]}{RESET}")
+            print(f"    {'─'*36}")
+            print(f"    Total  : {stats['total']}")
+            print(f"    {GREEN}✅ Passed: {stats['passed']}{RESET}")
+            if stats["failed"]:
+                print(f"    {RED}❌ Failed: {stats['failed']}{RESET}")
+            print(f"    ⏱  Time : {stats['duration']:.1f}s")
         else:
             # plain text fallback
             if rc == 0:
@@ -432,6 +479,10 @@ def print_summary(run_results, text_changes):
                     if any(x in line for x in ["passed", "failed", "Error"]):
                         print(f"    {line}")
 
+    # Reconcile all_ok with grand counts (handles fallback path edge cases)
+    if grand_failed > 0:
+        all_ok = False
+
     # Grand totals
     print(f"\n  {'─'*40}")
     print(f"  {BOLD}TOTAL  : {grand_total} tests in {grand_duration:.1f}s{RESET}")
@@ -439,26 +490,37 @@ def print_summary(run_results, text_changes):
     if grand_failed:
         print(f"  {RED}{BOLD}❌ Failed: {grand_failed}{RESET}")
 
-    # Detected changes
-    if text_changes:
-        print(f"\n  {BOLD}Git change validated:{RESET}")
-        for c in text_changes:
-            old_v = extract_inner_text(c["old_text"]) or c["old_text"][:50]
-            new_v = extract_inner_text(c["new_text"]) or c["new_text"][:50]
-            print(f"    {RED}«{old_v}»{RESET}  →  {GREEN}«{new_v}»{RESET}")
-
     overall = f"{GREEN}{BOLD}✅ SUCCESSFUL" if all_ok else f"{RED}{BOLD}❌ TESTS FAILED"
     print(f"\n  {overall}{RESET}")
 
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    print(f"\n{BOLD}{CYAN}{'═'*60}")
-    print("  🤖 Git-Aware Playwright Test Generator – Hackathon POC")
-    print(f"{'═'*60}{RESET}")
-    
-    # Ensure we run from the project root
+    # Ensure we run from the project root first (so .env is found correctly).
     script_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(script_dir)
+
+    # Set corporate proxy if not already configured in the environment.
+    for _proxy_key in ("HTTP_PROXY", "HTTPS_PROXY"):
+        if not os.getenv(_proxy_key):
+            os.environ[_proxy_key] = "http://proxy-dmz.intel.com:912"
+
+    # Load .env early so provider/model are available for the config banner.
+    try:
+        from ai.playwright_test_generator import load_simple_dotenv
+        load_simple_dotenv()
+    except Exception:
+        pass
+
+    _provider_display = os.getenv("OPENAI_PROVIDER", "azure").upper()
+    _model_display    = os.getenv("OPENAI_MODEL", "gpt-5.1")
+
+    print(f"\n{BOLD}{CYAN}{'═'*60}")
+    print("  🤖 Playwright Test Generator – Hackathon POC")
+    print(f"{'═'*60}")
+    print(f"  AI Provider Settings:")
+    print(f"    Provider : {_provider_display}")
+    print(f"    Model    : {_model_display}")
+    print(f"{'═'*60}{RESET}")
     
     commit_hash  = get_last_commit_info()
     changed_files = get_changed_files()

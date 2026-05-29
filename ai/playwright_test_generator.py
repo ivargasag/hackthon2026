@@ -286,7 +286,7 @@ test.describe('Auto-generated from user story', () => {{
 const BASE_URL = 'http://localhost:3000';
 
 test.describe('Auto-generated from code change', () => {{
-  test('validates changed behavior for {changed_file}', async ({{ page }}) => {{
+  test('[{changed_file}] "{escaped_old}" → "{escaped_new}"', async ({{ page }}) => {{
     await page.goto(BASE_URL);
 
     // Validate that the new text appears and the old text no longer appears.

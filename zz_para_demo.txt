@@ -1,0 +1,11 @@
+Correr npm start, para correr el server
+
+ir a http://localhost:3000/
+
+===
+
+Hacer cambios y commit
+
+
+python auto_test.py
+
