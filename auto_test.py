@@ -261,9 +261,6 @@ def print_ai_usage_notice():
     """Reminds the user that AI output needs human review."""
     print(f"\n  {CYAN}{BOLD}🧠 AI Usage Notice{RESET}")
     print(
-        f"  {CYAN}The test draft was generated with AI from detected git changes to accelerate coverage.{RESET}"
-    )
-    print(
         f"  {YELLOW}⚠️  Please notice that AI can make mistakes, use this as a reference only.{RESET}"
     )
 
