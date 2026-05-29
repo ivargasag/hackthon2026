@@ -1,4 +1,6 @@
-Correr npm start, para correr el server
+Correr 
+npm start
+, para correr el server
 
 ir a http://localhost:3000/
 
